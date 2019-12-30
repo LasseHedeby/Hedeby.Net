@@ -1,0 +1,162 @@
+FUNCTION "LGF_RandomInt" : Int
+{ S7_Optimized_Access := 'TRUE' }
+   VAR_INPUT 
+      minValue : Int;
+      maxValue : Int;
+   END_VAR
+
+   VAR_TEMP 
+      tempTime {OriginalPartName := 'DTL'; LibVersion := '1.0'} : DTL;
+      tempTimeStatus : Int;
+      tempRandomValue : Int;
+      tempNormReal : Real;
+      error : Bool;
+   END_VAR
+
+   VAR CONSTANT 
+      NO_ERROR : Word := 16#0000;
+      NO_CURRENT_JOBS : Word := 16#7000;
+      MAX_LESS_MIN : Word := 16#8200;
+      ERROR_IN_THIS_BLOCK : UInt := 1;
+      ERROR_RD_SYS_T : UInt := 2;
+      MIN_INT : DInt := -32768;
+      MAX_INT : DInt := 32767;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// Siemens AG
+	// (c)Copyright 2015
+	//-----------------------------------------------------------------------------
+	// Library:       LGF (Library General Functions)
+	// Tested with:   CPU1212C DC/DC/DC FW:V4.1
+	// Engineering:   TIA Portal V13 SP1 Upd 4
+	// Restrictions:  -
+	// Requirements:  PLC (S7-1200 / S7-1500)
+	// Functionality: This function generates random numbers in defined limits
+	//                (Datatype Int)
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date        In charge                        Changes applied
+	// 01.00.00 19.08.2015  Siemens Industry Online Support  First released version
+	//-----------------------------------------------------------------------------
+	//Status Codes:
+	// 16#7000:  No current jobs
+	// 16#0000:  Job finished; Note: There is no "Busy"-Status because the block
+	//           is finished within a single cycle
+	// 16#8200:  maxValue is samller then minValue 
+	//=============================================================================
+	
+	//Check if the maximal Value is less than the minimal value
+	IF (#minValue > #maxValue) THEN
+	  #LGF_RandomInt := 0;
+	  RETURN;
+	END_IF;
+	
+	//Read system time
+	#tempTimeStatus := RD_SYS_T(#tempTime);
+	
+	IF (#tempTimeStatus <> 0) THEN
+	  #LGF_RandomInt := 0;
+	  RETURN;
+	END_IF;
+	
+	//Callculate a random-start-value depending on the time
+	#tempRandomValue.%B1 := #tempTime.NANOSECOND.%B0;
+	#tempRandomValue.%B0 := #tempTime.NANOSECOND.%B1;
+	
+	//adapt the calculated random number to the given number span
+	#tempNormReal := NORM_X(MIN := #MIN_INT, VALUE := #tempRandomValue, MAX := #MAX_INT);
+	#LGF_RandomInt := SCALE_X(MIN := #minValue, VALUE := #tempNormReal, MAX := #maxValue);
+END_FUNCTION
+
+FUNCTION_BLOCK "FBGenerateUniqueKey"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      execute { S7_HMI_Accessible := 'False'; S7_HMI_Visible := 'False'} : Bool;
+      length { S7_HMI_Accessible := 'False'; S7_HMI_Visible := 'False'} : Int;
+   END_VAR
+
+   VAR_OUTPUT 
+      error { S7_HMI_Accessible := 'False'; S7_HMI_Visible := 'False'} : Bool;
+      status { S7_HMI_Accessible := 'False'; S7_HMI_Visible := 'False'} : Word;
+      uniqueKey : String;
+      keyLength : Int;
+   END_VAR
+
+   VAR 
+      statExecuteTrig : Bool;
+      statExecuteMemory : Bool;
+      statRandomInt : Int;
+   END_VAR
+
+   VAR_TEMP 
+      tempIndex : Int;
+      tempCharactors : String;
+      tempCharLength : Int;
+      tempString : String;
+      tempRandomInt : Int;
+      tempError : Bool;
+      tempStatus : Word;
+      tempRepeat : Int;
+   END_VAR
+
+   VAR CONSTANT 
+      JOB_COMPLETE : Word := 16#0000;
+      NO_JOB : Word := 16#7000;
+      NEW_JOB_TRIG : Word := 16#7001;
+      NEW_JOB_EXECUTE : Word := 16#7002;
+      LENGTH_ERROR : Word := 16#8204;
+   END_VAR
+
+
+BEGIN
+	// Reset in every cycle
+	#tempError := False;
+	#tempStatus := #NO_JOB;
+	
+	// Rising edge on execute
+	#statExecuteTrig := #execute AND NOT #statExecuteMemory;
+	#statExecuteMemory := #execute;
+	
+	// Generate key on rising edge
+	IF #statExecuteTrig THEN
+	  // Define list of charactors
+	  #tempCharactors := '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210-';
+	  #tempCharLength := LEN(#tempCharactors);
+	  
+	  // Charactor loop
+	  #tempString := '';
+	  #statRandomInt := 0;
+	  FOR #tempIndex := 0 TO (#length - 1) DO
+	    #tempRepeat := 0; // Prevent cycle time overflow
+	    REPEAT
+	      #tempRepeat := #tempRepeat + 1;
+	      // Generate a random number for charactor index
+	      #tempRandomInt := "LGF_RandomInt"(minValue := 1, maxValue := #tempCharLength);
+	    UNTIL (#statRandomInt <> #tempRandomInt) OR (#tempRepeat > 4) // Prevent dublicates next to each other
+	    END_REPEAT;
+	    // Add to string
+	    #tempString := CONCAT(IN1 := #tempString, IN2 := MID(IN := #tempCharactors, P := #tempRandomInt, L := 1));
+	    // Save last random int
+	    #statRandomInt := #tempRandomInt;
+	  END_FOR;
+	  
+	  // Write key and length
+	  #uniqueKey := #tempString;
+	  #keyLength := LEN(#tempString);
+	  #tempStatus := #JOB_COMPLETE;
+	END_IF;
+	
+	// Reset if not execute
+	IF NOT #execute THEN
+	  #uniqueKey := '';
+	  #keyLength := 0;
+	END_IF;
+	
+	// Update outputs
+	#error := #tempError;
+	#status := #tempStatus;
+END_FUNCTION_BLOCK
