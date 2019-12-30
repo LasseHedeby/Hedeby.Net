@@ -1,0 +1,527 @@
+TYPE "typeStorageItem"
+VERSION : 0.1
+   STRUCT
+      boItem : Bool;   // Is there an item in the location
+      u8Status : USInt;   // Status of the location
+      sgIdentification : String;   // ID of the item in the location
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "typeStorageLocation"
+VERSION : 0.1
+   STRUCT
+      row : Int := -1;
+      column : Int := -1;
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "typeStorage"
+VERSION : 0.1
+   STRUCT
+      typeStorage : Array[1..8, 1..12] of "typeStorageItem";
+   END_STRUCT;
+
+END_TYPE
+
+DATA_BLOCK "dGlobalStorage"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+   VAR 
+      sItems : "typeStorage";
+      sStartPoint : "typeStorageLocation";
+      sEndPoint : "typeStorageLocation";
+      sLocationFound : Struct
+         boState : Bool;
+         sLocation : "typeStorageLocation";
+      END_STRUCT;
+      sSetLocation : Struct
+         sLocation : "typeStorageLocation";
+         u8Status : USInt;
+         boSet : Bool;
+      END_STRUCT;
+      au8Priority : Array[1..10] of USInt;
+      sRandomizeStatus : Struct
+         u8FreePercent : USInt;
+         boSet : Bool;
+      END_STRUCT;
+      boClearAll : Bool;
+      boIPOSearch : Bool;
+      boRowSearch : Bool;
+      boFullRow : Bool;
+      boColumnSearch : Bool;
+      boFullColumn : Bool;
+      boSpiralSearch : Bool;
+      boPrioritizedSearch : Bool;
+      boSearchAll : Bool;
+      boSetEndpoint : Bool;
+      searchLocations : Array[1..100] of Struct
+         rowMax : Int;
+         rowMin : Int;
+         column : Int;
+      END_STRUCT;
+   END_VAR
+
+
+BEGIN
+
+END_DATA_BLOCK
+
+FUNCTION "FCRSRowSearch" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      startPoint : "typeStorageLocation";
+      endPoint : "typeStorageLocation";
+      fullSearch : Bool;
+      minRow : Int;
+      maxRow : Int;
+   END_VAR
+
+   VAR_OUTPUT 
+      freeLocation : "typeStorageLocation";
+      freeLocationFound : Bool;
+   END_VAR
+
+   VAR_IN_OUT 
+      storage : "typeStorage";
+   END_VAR
+
+   VAR_TEMP 
+      tempRow : Int;
+   END_VAR
+
+
+BEGIN
+	// Reset output
+	#freeLocation.column  := -1;
+	#freeLocation.row     := -1;
+	#freeLocationFound    := False;
+	
+	IF #fullSearch THEN
+	  // Loop from starting point to endpoint
+	  FOR #tempRow := #minRow TO #maxRow DO
+	    // Debug: Add number to location for debugging
+	    IF (#storage.typeStorage[#tempRow, #endPoint.column].sgIdentification = '') THEN
+	      #storage.typeStorage[#tempRow, #endPoint.column].sgIdentification := INT_TO_STRING(1);
+	    END_IF;
+	    
+	    IF NOT #storage.typeStorage[#tempRow, #endPoint.column].boItem THEN
+	      #freeLocation.row     := #tempRow;
+	      #freeLocation.column  := #endPoint.column;
+	      #freeLocationFound    := True;
+	      RETURN; // Stop search when found
+	    END_IF;
+	  END_FOR;
+	ELSE
+	  // If starting point is less than end point then increment search
+	  IF (#startPoint.row < #endPoint.row) THEN
+	    // Loop from starting point to endpoint
+	    FOR #tempRow := #startPoint.row TO #endPoint.row DO
+	      // Debug: Add number to location for debugging
+	      IF (#storage.typeStorage[#tempRow, #endPoint.column].sgIdentification = '') THEN
+	        #storage.typeStorage[#tempRow, #endPoint.column].sgIdentification := INT_TO_STRING(1);
+	      END_IF;
+	      
+	      IF NOT #storage.typeStorage[#tempRow, #endPoint.column].boItem THEN
+	        #freeLocation.row     := #tempRow;
+	        #freeLocation.column  := #endPoint.column;
+	        #freeLocationFound    := True;
+	        RETURN; // Stop search when found
+	      END_IF;
+	    END_FOR;
+	  ELSE // Decrement search
+	    // Loop from starting point to endpoint
+	    FOR #tempRow := #startPoint.row TO #endPoint.row BY -1 DO
+	      // Debug: Add number to location for debugging
+	      IF (#storage.typeStorage[#tempRow, #endPoint.column].sgIdentification = '') THEN
+	        #storage.typeStorage[#tempRow, #endPoint.column].sgIdentification := INT_TO_STRING(1);
+	      END_IF;
+	      
+	      IF NOT #storage.typeStorage[#tempRow, #endPoint.column].boItem THEN
+	        #freeLocation.row := #tempRow;
+	        #freeLocation.column := #endPoint.column;
+	        #freeLocationFound := True;
+	        RETURN; // Stop search when found
+	      END_IF;
+	    END_FOR;
+	  END_IF;
+	END_IF;
+END_FUNCTION
+
+FUNCTION "FCRSSpiralSearch" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      endPoint : "typeStorageLocation";
+      maxRow : Int;
+      maxColumn : Int;
+   END_VAR
+
+   VAR_OUTPUT 
+      freeLocation : "typeStorageLocation";
+      freeLocationFound : Bool;
+   END_VAR
+
+   VAR_IN_OUT 
+      storage : "typeStorage";
+   END_VAR
+
+   VAR_TEMP 
+      tempColumn : Int;
+      tempDirection : USInt;
+      tempCountDirectionChange : Int;
+      tempDirectionCount : Int;
+      tempLoopCount : Int;
+      tempRow : Int;
+      tempAdd : Int;
+   END_VAR
+
+   VAR CONSTANT 
+      D_DOWN : USInt := 1;
+      D_LEFT : USInt := 2;
+      D_RIGHT : USInt := 3;
+      D_UP : USInt := 4;
+      UNDEFINED : USInt := 0;
+      MAX_LOOPS : Int := 1000;
+   END_VAR
+
+
+BEGIN
+	// Reset
+	#freeLocation.column      := -1;
+	#freeLocation.row         := -1;
+	#freeLocationFound        := False;
+	#tempDirection            := #D_DOWN;
+	#tempCountDirectionChange := 0;
+	#tempAdd                  := 1;
+	#tempLoopCount            := 0;
+	#tempRow                  := #endPoint.row;
+	#tempColumn               := #endPoint.column;
+	
+	// Spiral search loop
+	REPEAT
+	  // Loop counter (Only used for debugging)
+	  #tempLoopCount := (#tempLoopCount + 1);
+	  
+	  // Calculate addition and direction change
+	  IF (#tempCountDirectionChange = 2) THEN
+	    #tempAdd                  := (#tempAdd + 1);
+	    #tempCountDirectionChange := 0;
+	  END_IF;
+	    
+	  // Loop direction
+	  CASE #tempDirection OF
+	    #D_DOWN:
+	      #tempRow := (#tempRow - 1);
+	      // Count loops in this direction
+	      #tempDirectionCount := (#tempDirectionCount + 1);
+	      // Change direction
+	      IF (#tempDirectionCount = #tempAdd) THEN
+	        #tempCountDirectionChange := (#tempCountDirectionChange + 1);
+	        #tempDirectionCount       := 0;
+	        #tempDirection            := #D_LEFT;
+	      END_IF;
+	      
+	    #D_LEFT:
+	      #tempColumn := (#tempColumn - 1);
+	      // Count loops in this direction
+	      #tempDirectionCount := (#tempDirectionCount + 1);
+	      // Change direction
+	      IF (#tempDirectionCount = #tempAdd) THEN
+	        #tempCountDirectionChange := (#tempCountDirectionChange + 1);
+	        #tempDirectionCount       := 0;
+	        #tempDirection            := #D_UP;
+	      END_IF;
+	      
+	    #D_UP:
+	      #tempRow := (#tempRow + 1);
+	      // Count loops in this direction
+	      #tempDirectionCount := (#tempDirectionCount + 1);
+	      // Change direction
+	      IF (#tempDirectionCount = #tempAdd) THEN
+	        #tempCountDirectionChange := (#tempCountDirectionChange + 1);
+	        #tempDirectionCount       := 0;
+	        #tempDirection            := #D_RIGHT;
+	      END_IF;
+	     
+	    #D_RIGHT:
+	      #tempColumn := (#tempColumn + 1);
+	      // Count loops in this direction
+	      #tempDirectionCount := (#tempDirectionCount + 1);
+	      // Change direction
+	      IF (#tempDirectionCount = #tempAdd) THEN
+	        #tempCountDirectionChange := (#tempCountDirectionChange + 1);
+	        #tempDirectionCount       := 0;
+	        #tempDirection            := #D_DOWN;
+	      END_IF;
+	  END_CASE;
+	  
+	  // Check location
+	  IF
+	    (#tempRow <= #maxRow) AND
+	    (#tempRow >= 1) AND
+	    (#tempColumn <= #maxColumn) AND
+	    (#tempColumn >= 1)
+	  THEN
+	    // Debug: Add number to location for debugging
+	    IF (#storage.typeStorage[#tempRow, #tempColumn].sgIdentification = '') THEN
+	      #storage.typeStorage[#tempRow, #tempColumn].sgIdentification := INT_TO_STRING(#tempLoopCount);
+	    END_IF;
+	    // Check if location is free
+	    IF NOT #storage.typeStorage[#tempRow, #tempColumn].boItem THEN
+	      #freeLocation.row := #tempRow;
+	      #freeLocation.column := #tempColumn;
+	      #freeLocationFound := True;
+	      RETURN;
+	    END_IF;
+	  END_IF;
+	UNTIL (#tempLoopCount >= #MAX_LOOPS)
+	END_REPEAT;
+END_FUNCTION
+
+FUNCTION "FCRSColumnSearch" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      startPoint : "typeStorageLocation";
+      endPoint : "typeStorageLocation";
+      fullSearch : Bool;
+      minColumn : Int;
+      maxColumn : Int;
+   END_VAR
+
+   VAR_OUTPUT 
+      freeLocation : "typeStorageLocation";
+      freeLocationFound : Bool;
+   END_VAR
+
+   VAR_IN_OUT 
+      storage : "typeStorage";
+   END_VAR
+
+   VAR_TEMP 
+      tempColumn : Int;
+   END_VAR
+
+
+BEGIN
+	// Reset output
+	#freeLocation.column  := -1;
+	#freeLocation.row     := -1;
+	#freeLocationFound    := False;
+	
+	// If full search
+	IF #fullSearch THEN
+	  // Loop in all columns
+	  FOR #tempColumn := #minColumn TO #maxColumn DO
+	    // Debug: Add number to location for debugging
+	    IF (#storage.typeStorage[#endPoint.row, #tempColumn].sgIdentification = '') THEN
+	      #storage.typeStorage[#endPoint.row, #tempColumn].sgIdentification := INT_TO_STRING(1);
+	    END_IF;
+	    
+	    IF NOT #storage.typeStorage[#endPoint.row, #tempColumn].boItem THEN
+	      #freeLocation.row     := #endPoint.row;
+	      #freeLocation.column  := #tempColumn;
+	      #freeLocationFound    := True;
+	      RETURN; // Stop search when found
+	    END_IF;
+	  END_FOR;
+	ELSE
+	    // If starting point is less than end point then increment search
+	  IF (#startPoint.column < #endPoint.column) THEN
+	    // Loop from starting point to endpoint
+	    FOR #tempColumn := #startPoint.column TO #endPoint.column DO
+	      // Debug: Add number to location for debugging
+	      IF (#storage.typeStorage[#endPoint.row, #tempColumn].sgIdentification = '') THEN
+	        #storage.typeStorage[#endPoint.row, #tempColumn].sgIdentification := INT_TO_STRING(1);
+	      END_IF;
+	      
+	      IF NOT #storage.typeStorage[#endPoint.row, #tempColumn].boItem THEN
+	        #freeLocation.row     := #endPoint.row;
+	        #freeLocation.column  := #tempColumn;
+	        #freeLocationFound    := True;
+	        RETURN; // Stop search when found
+	      END_IF;
+	    END_FOR;
+	  ELSE // Decrement search
+	    // Loop from starting point to endpoint
+	    FOR #tempColumn := #startPoint.column TO #endPoint.column BY -1 DO
+	      // Debug: Add number to location for debugging
+	      IF (#storage.typeStorage[#endPoint.row, #tempColumn].sgIdentification = '') THEN
+	        #storage.typeStorage[#endPoint.row, #tempColumn].sgIdentification := INT_TO_STRING(1);
+	      END_IF;
+	      
+	      IF NOT #storage.typeStorage[#endPoint.row, #tempColumn].boItem THEN
+	        #freeLocation.row     := #endPoint.row;
+	        #freeLocation.column  := #tempColumn;
+	        #freeLocationFound    := True;
+	        RETURN; // Stop search when found
+	      END_IF;
+	    END_FOR;
+	  END_IF;
+	END_IF;
+	    
+END_FUNCTION
+
+FUNCTION "FCRSInterpolationSearch" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      startPoint : "typeStorageLocation";
+      endPoint : "typeStorageLocation";
+   END_VAR
+
+   VAR_OUTPUT 
+      freeLocation : "typeStorageLocation";
+      freeLocationFound : Bool;
+   END_VAR
+
+   VAR_IN_OUT 
+      storage : "typeStorage";
+   END_VAR
+
+   VAR_TEMP 
+      tempSearchLocations : Array[1..100] of Struct
+         rowMax : Int;
+         rowMin : Int;
+         column : Int;
+      END_STRUCT;
+      tempSearchCount : Int;
+      tempIPOResult : Real;
+      tempRow : Int;
+      tempColumn : Int;
+      tempSearchLoopCount : Int;
+      tempSearchIndex : Int;
+   END_VAR
+
+   VAR CONSTANT 
+      MAX_LOOPS : Int := 1000;
+   END_VAR
+
+
+BEGIN
+	// Reset variables
+	#freeLocation.column  := -1;
+	#freeLocation.row     := -1;
+	#freeLocationFound    := False;
+	#tempSearchCount      := 0;
+	
+	// Interpolate locations in the x-axis (columns)
+	IF (#startPoint.column < #endPoint.column) THEN
+	  FOR #tempColumn := #startPoint.column TO #endPoint.column DO
+	    //                    x - x0
+	    // y = y0 + (y1 - y0)-------
+	    //                   x1 - x0
+	    #tempIPOResult := INT_TO_REAL(#startPoint.row) +
+	                      (INT_TO_REAL(#endPoint.row) - INT_TO_REAL(#startPoint.row)) *
+	                      ((INT_TO_REAL(#tempColumn) - INT_TO_REAL(#startPoint.column)) / (INT_TO_REAL(#endPoint.column) - INT_TO_REAL(#startPoint.column)));
+	                      
+	    #tempSearchCount := (#tempSearchCount + 1);
+	                      
+	    #tempSearchLocations[#tempSearchCount].rowMin := DINT_TO_INT(ROUND(#tempIPOResult));
+	    #tempSearchLocations[#tempSearchCount].column := #tempColumn;
+	    #tempSearchLocations[#tempSearchCount].rowMax := #tempSearchLocations[#tempSearchCount].rowMin;
+	  END_FOR;
+	ELSE
+	  FOR #tempColumn := #startPoint.column TO #endPoint.column  BY -1 DO
+	    //                    x - x0
+	    // y = y0 + (y1 - y0)-------
+	    //                   x1 - x0
+	    #tempIPOResult := INT_TO_REAL(#startPoint.row) +
+	                      (INT_TO_REAL(#endPoint.row) - INT_TO_REAL(#startPoint.row)) *
+	                      ((INT_TO_REAL(#tempColumn) - INT_TO_REAL(#startPoint.column)) / (INT_TO_REAL(#endPoint.column) - INT_TO_REAL(#startPoint.column)));
+	    
+	    #tempSearchCount := (#tempSearchCount + 1);
+	    
+	    #tempSearchLocations[#tempSearchCount].rowMin := DINT_TO_INT(ROUND(#tempIPOResult));
+	    #tempSearchLocations[#tempSearchCount].column := #tempColumn;
+	    #tempSearchLocations[#tempSearchCount].rowMax := #tempSearchLocations[#tempSearchCount].rowMin;
+	  END_FOR;
+	END_IF;
+	
+	// Search loop
+	// A loop counter is added and checked against constant MAX_LOOPS to avoid
+	// an infinit loop causing cycle time exclusion
+	#tempSearchLoopCount := 0;
+	REPEAT
+	  // Loop counter
+	  #tempSearchLoopCount :=#tempSearchLoopCount + 1;
+	  
+	  // Loop thorugh all searches
+	  FOR #tempSearchIndex := 1 TO #tempSearchCount DO
+	    // Loop from rowMin to rowMax in a column based on the interpolation
+	    // 
+	    FOR #tempRow := #tempSearchLocations[#tempSearchIndex].rowMin TO #tempSearchLocations[#tempSearchIndex].rowMax DO
+	      // Debug: Add number to location for debugging
+	      IF (#storage.typeStorage[#tempRow,#tempSearchLocations[#tempSearchIndex].column].sgIdentification = '') THEN
+	        #storage.typeStorage[#tempRow,#tempSearchLocations[#tempSearchIndex].column].sgIdentification := INT_TO_STRING(#tempSearchLoopCount);
+	      END_IF;
+	      
+	      // Check if location is free
+	      IF NOT #storage.typeStorage[#tempRow,#tempSearchLocations[#tempSearchIndex].column].boItem THEN
+	        #freeLocation.column := #tempSearchLocations[#tempSearchIndex].column;
+	        #freeLocation.row    := #tempRow;
+	        #freeLocationFound   := True;
+	        RETURN;
+	      ELSE
+	        // Widen search span for next loop
+	        // Startpoint is left-down or right-down from end point
+	        IF
+	          ((#startPoint.column < #endPoint.column) AND (#startPoint.row < #endPoint.row)) OR
+	          ((#startPoint.column > #endPoint.column) AND (#startPoint.row < #endPoint.row))
+	        THEN
+	          // Only increment if it is below max row
+	          IF (#tempSearchLocations[#tempSearchIndex].rowMax < #endPoint.row) THEN
+	            #tempSearchLocations[#tempSearchIndex].rowMax := #tempSearchLocations[#tempSearchIndex].rowMax + 1;
+	          END_IF;
+	          
+	          // Only decrement if it is above min row
+	          IF (#tempSearchLocations[#tempSearchIndex].rowMin > #startPoint.row) THEN
+	            #tempSearchLocations[#tempSearchIndex].rowMin := #tempSearchLocations[#tempSearchIndex].rowMin - 1;
+	          END_IF;
+	        END_IF;
+	        // Startpoint is left-up or right-up from end point
+	        IF
+	          ((#startPoint.column < #endPoint.column) AND (#startPoint.row > #endPoint.row)) OR
+	          ((#startPoint.column > #endPoint.column) AND (#startPoint.row > #endPoint.row))
+	        THEN
+	          // Only increment if it is below max row
+	          IF (#tempSearchLocations[#tempSearchIndex].rowMax < #startPoint.row) THEN
+	            #tempSearchLocations[#tempSearchIndex].rowMax := #tempSearchLocations[#tempSearchIndex].rowMax + 1;
+	          END_IF;
+	          
+	          // Only decrement if it is above min row
+	          IF (#tempSearchLocations[#tempSearchIndex].rowMin > #endPoint.row) THEN
+	            #tempSearchLocations[#tempSearchIndex].rowMin := #tempSearchLocations[#tempSearchIndex].rowMin - 1;
+	          END_IF;
+	        END_IF;
+	      END_IF;
+	    END_FOR;
+	  END_FOR;
+	  
+	  // Check when to stop searching
+	  // Startpoint is left-down or right-down from end point
+	  IF
+	    ((#startPoint.column < #endPoint.column) AND (#startPoint.row < #endPoint.row)) OR
+	    ((#startPoint.column > #endPoint.column) AND (#startPoint.row < #endPoint.row))
+	  THEN
+	    IF ((#tempSearchLocations[1].rowMax > #endPoint.row) AND (#tempSearchLocations[#tempSearchCount].rowMin < #startPoint.row)) THEN
+	      EXIT;
+	    END_IF;
+	  END_IF;
+	  
+	  // Startpoint is left-up or right-up from end point
+	  IF
+	    ((#startPoint.column < #endPoint.column) AND (#startPoint.row > #endPoint.row)) OR
+	    ((#startPoint.column > #endPoint.column) AND (#startPoint.row > #endPoint.row))
+	  THEN
+	    IF (#tempSearchLocations[1].rowMin < #endPoint.row) AND (#tempSearchLocations[#tempSearchCount].rowMax > #startPoint.row) THEN
+	      EXIT;
+	    END_IF;
+	  END_IF;
+	UNTIL (#tempSearchLoopCount >= #MAX_LOOPS)
+	END_REPEAT;
+END_FUNCTION
