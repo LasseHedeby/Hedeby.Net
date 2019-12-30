@@ -1,0 +1,76 @@
+//================================================================================================
+// Hedeby.Net
+// (c)Copyright 2015 All Rights Reserved
+//------------------------------------------------------------------------------------------------
+// file name:        ReadDataMatrix
+// created by:       LHH
+// library:          -
+// system:           Simatic S7-300 V3.3
+// version:          Step 7 V5.5
+// restrictions:     Cyclic task
+// requirements:     -
+// functionality:    This function block read the data matrix string from Jumo sensor and returns
+//                   the selected strings
+//================================================================================================
+// Compiler Options
+//================================================================================================
+{
+OverwriteBlocks          := 'y'; // Overwrite the blocks
+GenerateReferenceData    := 'y'; // Generate reference data
+CreateObjectCode         := 'y'; // Create the object code
+OptimizeObjectCode       := 'y'; // Optimize the object code
+MonitorArrayLimits       := 'n'; // Monitor the array limits
+CreateDebugInfo          := 'n'; // Create the debug info
+SetOKFlag                := 'n'; // Set the OK flag
+SetMaximumStringLength   := '254' // Maximum string length
+}
+//================================================================================================
+// Change Log:
+//------------------------------------------------------------------------------------------------
+// Version  Date          Author   Description
+//------------------------------------------------------------------------------------------------
+// 0.1      2015.09.02    LHH      Created
+// 1.0      2015.09.02    LHH      First release after testing
+//
+//================================================================================================
+FUNCTION_BLOCK ReadDataMatrix
+ 
+TITLE = 'Read Data Matrix'
+VERSION: '1.0'
+AUTHOR: LHH
+ 
+VAR_INPUT
+ valueIndex        : INT;
+ arrData           : ARRAY[1..520] OF CHAR;
+END_VAR
+ 
+VAR_OUTPUT
+ valueOutput       : STRING;
+END_VAR
+ 
+VAR
+ statIndex         : INT;
+ statFieldNumber   : INT;
+END_VAR
+ 
+ statFieldNumber := 0;
+ valueOutput := '';
+  
+ // Run through array of charactors
+ FOR statIndex := 1 TO 520 DO
+   // Read value index
+   IF (valueIndex = statFieldNumber) AND NOT (arrData[statIndex] = ';') THEN
+     valueOutput := CONCAT(IN1:=valueOutput,IN2:=CHAR_TO_STRING(arrData[statIndex]));
+   END_IF;
+  
+   // Find separator
+   IF (arrData[statIndex] = ';') THEN
+     statFieldNumber := (statFieldNumber + 1);
+   END_IF;
+  
+   // Stop when reached
+   IF (valueIndex < statFieldNumber) THEN
+     EXIT;
+   END_IF;
+ END_FOR;
+END_FUNCTION_BLOCK
