@@ -1,0 +1,247 @@
+FUNCTION_BLOCK "FBTCPSocket"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      enable : Bool;
+      interfaceID : HW_ANY;
+      connID : CONN_ANY;
+      isClient : Bool;
+      localPort : UInt;
+      remotePort : UInt;
+      ip1 : USInt;
+      ip2 : USInt;
+      ip3 : USInt;
+      ip4 : USInt;
+      send : Bool;
+      sendData : Array[0..2047] of Byte;
+      sendLength : UDInt;
+      reset : Bool;
+   END_VAR
+
+   VAR_OUTPUT 
+      valid : Bool;
+      error : Bool;
+      status : Word;
+      connected : Bool;
+      sending : Bool;
+      dataRecieved : Bool;
+      dataLength : UDInt;
+      receivedData : Array[0..2047] of Byte;
+   END_VAR
+
+   VAR 
+      insTCON {InstructionName := 'TCON'; LibVersion := '4.0'} : TCON;
+      insTDISCON {InstructionName := 'TDISCON'; LibVersion := '2.1'} : TDISCON;
+      insTDIAG {InstructionName := 'T_DIAG'; LibVersion := '1.2'} : T_DIAG;
+      insTSEND {InstructionName := 'TSEND'; LibVersion := '4.0'} : TSEND;
+      insTRCV {InstructionName := 'TRCV'; LibVersion := '4.0'} : TRCV;
+      statInitialized : Bool;
+      statConn : Struct
+         ConnectionStatus {InstructionName := 'TDiag_Status'; LibVersion := '1.0'} : TDiag_Status;
+         ConnectionData {InstructionName := 'TCON_IP_v4'; LibVersion := '1.0'} : TCON_IP_v4;
+         StateMachine : Int;
+         StateMachineNext : Int;
+         StateOld : Byte;
+      END_STRUCT;
+      statToogle : Bool;
+      insTrigSend {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+   END_VAR
+
+   VAR_TEMP 
+      tempStatus : Word;
+      tempData : Array[0..2047] of Byte;
+   END_VAR
+
+   VAR CONSTANT 
+      CONN_TERMINIATE : Int := 30;
+      CONN_CHECK : Int := 20;
+      CONN_INITIALIZE : Int := 0;
+      CONN_OPEN : Int := 10;
+   END_VAR
+
+
+BEGIN
+	REGION General
+	    // Wait for interface ID
+	    IF (#interfaceID = 0) THEN
+	        RETURN;
+	    END_IF;
+	    
+	    // Reset internal bits for next cycle
+	    #tempStatus := 16#7002;
+	    #insTDIAG.REQ := false;
+	    #insTCON.REQ := false;
+	    #insTDISCON.REQ := false;
+	    #dataRecieved := false;
+	    #connected := false;
+	    
+	    // Toogle in every scan (Used for rising edge)
+	    #statToogle := NOT #statToogle;
+	    
+	    // Reset if block is not enabled
+	    IF NOT #enable THEN
+	        #sending := false;
+	        #tempStatus := 16#7000;
+	        #statInitialized := false;
+	        
+	        GOTO END_BLOCK1;
+	    END_IF;
+	    
+	    REGION Initialize Data
+	        // Initialize data
+	        IF NOT #statInitialized OR #reset THEN
+	            #insTDISCON.REQ := NOT #insTDISCON.BUSY;
+	            #insTDISCON(ID := #statConn.ConnectionData.ID);
+	            
+	            // Connection
+	            #statConn.ConnectionData.ActiveEstablished := #isClient;
+	            #statConn.ConnectionData.ConnectionType := 16#11;
+	            #statConn.ConnectionData.ID := #connID;
+	            #statConn.ConnectionData.InterfaceId := #interfaceID;
+	            #statConn.ConnectionData.LocalPort := #localPort;
+	            #statConn.ConnectionData.RemotePort := #remotePort;
+	            #statConn.ConnectionData.RemoteAddress.ADDR[1] := #ip1;
+	            #statConn.ConnectionData.RemoteAddress.ADDR[2] := #ip2;
+	            #statConn.ConnectionData.RemoteAddress.ADDR[3] := #ip3;
+	            #statConn.ConnectionData.RemoteAddress.ADDR[4] := #ip4;
+	            
+	            #statConn.StateMachine := 0;
+	            #statConn.StateMachineNext := 0;
+	            #statConn.StateOld := 0;
+	            
+	            #statConn.StateMachine := #CONN_INITIALIZE;
+	            
+	            #tempStatus := 16#7001;
+	            #statInitialized := true;
+	            GOTO END_BLOCK1;
+	        END_IF;
+	    END_REGION
+	END_REGION
+	
+	REGION Connection
+	    //===========================================================================
+	    // Command Channel Connection
+	    //===========================================================================
+	    // Initialize connection
+	    IF (#statConn.StateMachine = #CONN_INITIALIZE) THEN
+	        #dataLength := 0;
+	        #dataRecieved := false;
+	        
+	        // Wrong interface id
+	        IF (#interfaceID = 0) THEN
+	            #tempStatus := 16#8001;
+	            GOTO END_BLOCK1;
+	        END_IF;
+	        
+	        IF (#insTCON.STATUS <> 16#0000) THEN
+	            #statConn.StateMachineNext := #CONN_OPEN;
+	        END_IF;
+	    END_IF;
+	    // Open connection
+	    IF (#statConn.StateMachine = #CONN_OPEN) THEN
+	        #insTCON.REQ := NOT #insTCON.BUSY;
+	        
+	        CASE WORD_TO_INT(#insTCON.STATUS) OF
+	            16#8085, 16#80C8:
+	                #statConn.ConnectionData.ID := (#statConn.ConnectionData.ID + 1);
+	                
+	                IF #statConn.ConnectionData.ID >= 199 THEN
+	                    #statConn.ConnectionData.ID := 100;
+	                END_IF;
+	            16#8086: // The ID parameter is outside the valid range.
+	                #statConn.ConnectionData.ID := 100;
+	            16#0000..16#7fff:
+	                #statConn.StateMachineNext := #CONN_CHECK;
+	            ELSE
+	                #tempStatus := 16#8600;
+	                GOTO END_BLOCK1;
+	        END_CASE;
+	    END_IF;
+	    // Check Connection
+	    IF (#statConn.StateMachine = #CONN_CHECK) THEN
+	        #insTDIAG.REQ := #statToogle;
+	        
+	        CASE WORD_TO_INT(#insTDIAG.STATUS) OF
+	            16#0000..16#7fff:
+	                #connected := (#statConn.ConnectionStatus.State = 16#04);
+	            16#80C4, 16#80A3:
+	                #tempStatus := 16#8601;
+	                GOTO END_BLOCK1;
+	            ELSE
+	                #statConn.StateMachineNext := #CONN_TERMINIATE;
+	        END_CASE;
+	    END_IF;
+	    // Terminate connection
+	    IF (#statConn.StateMachine = #CONN_TERMINIATE) THEN
+	        #insTDISCON.REQ := NOT #insTDISCON.BUSY;
+	        
+	        CASE WORD_TO_INT(#insTDISCON.STATUS) OF
+	            16#0000..16#7fff:
+	                #statConn.StateMachineNext := #CONN_INITIALIZE;
+	            ELSE
+	                #tempStatus := 16#8602;
+	                GOTO END_BLOCK1;
+	        END_CASE;
+	    END_IF;
+	    #statConn.StateMachine := #statConn.StateMachineNext;
+	END_REGION
+	
+	REGION Send Data
+	    // Reset send when done
+	    IF ((#insTSEND.DONE OR #insTSEND.BUSY) AND #sending) OR NOT #send OR #reset THEN
+	        #sending := false;
+	    END_IF;
+	    // Trigger sending
+	    #insTrigSend(CLK := #connected AND #send);
+	    IF #insTrigSend.Q THEN
+	        #sending := true;
+	    END_IF;
+	END_REGION
+	
+	REGION Block End
+	    //===========================================================================
+	    // Block End
+	    //===========================================================================
+	END_BLOCK1:
+	    // T-Blocks for command channel
+	    #insTCON(ID := #statConn.ConnectionData.ID,
+	             CONNECT := #statConn.ConnectionData);
+	    #insTDIAG(ID := #statConn.ConnectionData.ID,
+	              RESULT := #statConn.ConnectionStatus);
+	    #insTDISCON(ID := #statConn.ConnectionData.ID);
+	    #insTRCV(EN_R := (#statConn.ConnectionStatus.State = 16#04),
+	             ID := #statConn.ConnectionData.ID,
+	             LEN := 0,
+	             ADHOC := true,
+	             DATA := #tempData);
+	    REGION Data Received
+	        IF #connected AND #insTRCV.NDR THEN
+	            #dataRecieved := true;
+	            #dataLength := #insTRCV.RCVD_LEN;
+	            #receivedData := #tempData;
+	        END_IF;
+	    END_REGION
+	        
+	    // Catch error
+	    IF #insTRCV.ERROR THEN
+	        #tempStatus := 16#8604;
+	    END_IF;
+	    
+	    #insTSEND(REQ := #sending,
+	              ID := #statConn.ConnectionData.ID,
+	              LEN := #sendLength,
+	              DATA := #sendData);
+	    
+	    // Update Outputs
+	    CASE WORD_TO_INT(#tempStatus) OF
+	        16#0000..16#7fff:
+	            #valid := #enable;
+	            #error := false;
+	            #status := #tempStatus;
+	        16#8000..16#ffff:
+	            #valid := false;
+	            #error := true;
+	            #status := #tempStatus;
+	    END_CASE;
+	END_REGION
+END_FUNCTION_BLOCK
