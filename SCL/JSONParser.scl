@@ -1,1 +1,480 @@
+FUNCTION_BLOCK "FBJsonDecode"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      execute : Bool;
+      json : Variant;
+   END_VAR
 
+   VAR_OUTPUT 
+      done : Bool;
+      error : Bool;
+      status : Word;
+      dataElements : Int;
+      data : Array[1..#JSON_DATA_MAX] of Struct
+         sgName : String;
+         sgValue : String;
+      END_STRUCT;
+   END_VAR
+
+   VAR 
+      statStep { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;
+      statParseIndex { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;
+      statElementCopyCount { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UDInt;
+      statElementCount { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;
+   END_VAR
+
+   VAR_TEMP 
+      tempChar : Array[1..#MAX_ARRAY_ELEMENTS] of Char;
+      tempTypeTag : Char;
+      tempMoveBlkError : Int;
+      tempLoop : Int;
+      i : Int;
+      tempCharSave : Array[0..255] of Char;
+      tempSaveIndex : Int;
+      tempCharCount : UInt;
+      tempValueString : Bool;
+   END_VAR
+
+   VAR CONSTANT 
+      JSON_DATA_MAX : Int := 10;
+      MAX_ARRAY_ELEMENTS : Int := 10000;
+      NO_ERROR : Word := 16#0000;
+      NO_CURRENT_JOBS : Word := 16#7000;
+      NOT_AN_ARRAY : Word := 16#9201;
+      WRONG_ELEMENT_TYPE : Word := 16#9202;
+      TOO_MANY_CHARS : Word := 16#9203;
+      TOO_MANY_DATA_ELEMENTS : Word := 16#9200;
+      EMPTY_ARRAY : Word := 16#9204;
+      MAX_LOOP : Int := 1000;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	//Status Codes:
+	// 16#7000:  No current jobs
+	// 16#0000:  Job finished; Note: There is no "Busy"-Status because the block is
+	//           finished within a single cycle
+	// 16#9200:  Error: More data elements found than set in out-parameter data (JSON_DAT_MAX)
+	// 16#9201:  Error: Parameter is not an array
+	// 16#9202:  Error: Parameter is an array of the wrong type
+	//           (correct type is Char)
+	// 16#9203:  Error: There are too many Chars in the array
+	//          (default: max. 10000 chars)
+	// 16#9204:  Error: Parameter is an an array with only one element
+	// 
+	// 16#9300:  JSON Parse: No curly-bracket for start found
+	// 16#9301:  JSON Parse: Error
+	//=============================================================================
+	#error := false;
+	
+	REGION Move varaint
+	    IF #execute AND (#statStep >= 100) THEN
+	        // If there are more than 1 character  make a move to temp area 
+	        IF (#statElementCount > 1) AND NOT #error THEN
+	            // Read the elements of the incoming variant-array and write into the local array
+	            #tempMoveBlkError := MOVE_BLK_VARIANT(COUNT := #statElementCopyCount,
+	                                                  DEST => #tempChar,
+	                                                  DEST_INDEX := 0,
+	                                                  SRC := #json,
+	                                                  SRC_INDEX := 0);
+	            
+	            // Error handling for MOVE_BLK_VARIANT
+	            IF (#tempMoveBlkError <> 0) THEN
+	                #error := true;
+	                #status := INT_TO_WORD(#tempMoveBlkError);
+	                RETURN;
+	            END_IF;
+	        ELSIF (#statElementCount <= 1) THEN
+	            // If there are 0 elements in the array, set status to "Error: Parameter is an empty array"
+	            #error := true;
+	            #status := #EMPTY_ARRAY;
+	        END_IF;
+	    END_IF;
+	
+	END_REGION
+	
+	IF NOT #execute THEN
+	    #statStep := 0;
+	END_IF;
+	IF #error THEN
+	    RETURN;
+	END_IF;
+	
+	CASE #statStep OF
+	    0:
+	        REGION Initialize
+	            // Initialization
+	            #statElementCount := 0;
+	            #statElementCopyCount := 0;
+	            #tempMoveBlkError := 0;
+	            #tempTypeTag := BYTE_TO_CHAR(16#00);
+	            #statParseIndex := 1;
+	            #dataElements := 0;
+	            
+	            // Set "No current job" status
+	            #done := false;
+	            #error := false;
+	            #status := #NO_CURRENT_JOBS;
+	            
+	            IF #execute THEN
+	                #statStep := 10;
+	            END_IF;
+	        END_REGION
+	    10:
+	        REGION Check variant parameter
+	            // If the variant in-parameter is not an array, set error status 8201
+	            IF NOT IS_ARRAY(#json) THEN
+	                #error := true;
+	                #status := #NOT_AN_ARRAY;
+	                RETURN;
+	            ELSE
+	                IF (TypeOfElements(#json) = TypeOf(#tempTypeTag)) THEN
+	                    // If the parameter is an array of the type char, get the element count
+	                    #statElementCopyCount := CountOfElements(#json);
+	                    #statElementCount := UDINT_TO_INT(CountOfElements(#json));
+	                    // Check whether the variant array contains less than the maximum possible amount of elements
+	                    IF (#statElementCount > #MAX_ARRAY_ELEMENTS) THEN
+	                        #error := true;
+	                        #status := #TOO_MANY_CHARS;
+	                        RETURN;
+	                    END_IF;
+	                ELSE
+	                    // If the parameter is an array but not of the type integer, set an error status
+	                    #error := true;
+	                    #status := #WRONG_ELEMENT_TYPE;
+	                    RETURN;
+	                END_IF;
+	            END_IF;
+	            
+	            #statStep := 100;
+	        END_REGION
+	    100:
+	        REGION Find start bracket ({)            
+	            // Search array
+	            FOR #i := 1 TO #MAX_ARRAY_ELEMENTS DO
+	                // Error, end of array
+	                IF (#statParseIndex > #MAX_ARRAY_ELEMENTS) THEN
+	                    #error := true;
+	                    #status := 16#9300;
+	                    EXIT;
+	                ELSE
+	                    IF (#tempChar[#statParseIndex] = '{') THEN
+	                        #statParseIndex += 1;
+	                        #statStep := 200;
+	                        EXIT;
+	                    ELSE
+	                        #statParseIndex += 1;
+	                    END_IF;
+	                END_IF;
+	            END_FOR;
+	        END_REGION
+	    200:
+	        REPEAT
+	            REGION Save data name and value            
+	                REGION Check for " in front of name
+	                    IF (#tempChar[#statParseIndex] = '"') THEN
+	                        #statParseIndex += 1;
+	                        #dataElements += 1;
+	                    ELSE
+	                        #error := true;
+	                        #status := 16#9301;
+	                        RETURN;
+	                    END_IF;
+	                END_REGION
+	                
+	                REGION Clear temp chars
+	                    FOR #i := 0 TO 255 DO
+	                        #tempCharSave[#i] := BYTE_TO_CHAR(16#00);
+	                    END_FOR;
+	                END_REGION
+	                
+	                REGION Save name
+	                    #tempSaveIndex := 0;
+	                    FOR #i := 1 TO #MAX_ARRAY_ELEMENTS DO
+	                        // Error, end of array
+	                        IF (#statParseIndex > #MAX_ARRAY_ELEMENTS) THEN
+	                            #error := true;
+	                            #status := 16#9301;
+	                            RETURN;
+	                        ELSE
+	                            IF (#tempChar[#statParseIndex] <> '"') THEN
+	                                #tempCharSave[#tempSaveIndex] := #tempChar[#statParseIndex];
+	                                #tempSaveIndex += 1;
+	                                #statParseIndex += 1;
+	                            ELSE
+	                                #statParseIndex += 1; // Jump over "
+	                                EXIT;
+	                            END_IF;
+	                        END_IF;
+	                    END_FOR;
+	                    
+	                    // Convert to string
+	                    Chars_TO_Strg(Chars := #tempCharSave,
+	                                  pChars := 0,
+	                                  Cnt := #tempCharCount,
+	                                  Strg => #data[#dataElements].sgName);
+	                END_REGION
+	                
+	                REGION Check for : in between
+	                    IF (#tempChar[#statParseIndex] = ':') THEN
+	                        #statParseIndex += 1;
+	                    END_IF;
+	                END_REGION
+	                
+	                REGION Check for string or number value
+	                    IF (#tempChar[#statParseIndex] = '"') THEN
+	                        #tempValueString := true;
+	                        #statParseIndex += 1;
+	                    ELSE
+	                        #tempValueString := false;
+	                    END_IF;
+	                END_REGION
+	                
+	                REGION Clear temp chars
+	                    FOR #i := 0 TO 255 DO
+	                        #tempCharSave[#i] := BYTE_TO_CHAR(16#00);
+	                    END_FOR;
+	                END_REGION
+	                
+	                REGION Save value
+	                    #tempSaveIndex := 0;
+	                    FOR #i := 1 TO #MAX_ARRAY_ELEMENTS DO
+	                        // Error, end of array
+	                        IF (#statParseIndex > #MAX_ARRAY_ELEMENTS) THEN
+	                            #error := true;
+	                            #status := 16#9301;
+	                            RETURN;
+	                        ELSE
+	                            IF #tempValueString THEN
+	                                IF (#tempChar[#statParseIndex] = '"') AND (#tempChar[#statParseIndex + 1] = ',') THEN
+	                                    #statParseIndex += 2; // Jump over ",
+	                                    EXIT;
+	                                ELSIF (#tempChar[#statParseIndex] = '"') AND (#tempChar[#statParseIndex + 1] = '}') THEN
+	                                    #statParseIndex += 1;
+	                                    EXIT;
+	                                ELSE
+	                                    #tempCharSave[#tempSaveIndex] := #tempChar[#statParseIndex];
+	                                    #tempSaveIndex += 1;
+	                                    #statParseIndex += 1;
+	                                END_IF;
+	                            ELSE
+	                                IF (#tempChar[#statParseIndex] = ',') THEN
+	                                    #statParseIndex += 1; // Jump over ,
+	                                    EXIT;
+	                                ELSIF (#tempChar[#statParseIndex] = '}') THEN
+	                                    EXIT;
+	                                ELSE
+	                                    #tempCharSave[#tempSaveIndex] := #tempChar[#statParseIndex];
+	                                    #tempSaveIndex += 1;
+	                                    #statParseIndex += 1;
+	                                END_IF;
+	                            END_IF;
+	                        END_IF;
+	                    END_FOR;
+	                    
+	                    // Convert to string
+	                    Chars_TO_Strg(Chars := #tempCharSave,
+	                                  pChars := 0,
+	                                  Cnt := #tempCharCount,
+	                                  Strg => #data[#dataElements].sgValue);
+	                END_REGION
+	                
+	                //#statStep := 300;
+	            END_REGION
+	        UNTIL (#tempChar[#statParseIndex] = '}') OR (#statParseIndex >= #MAX_ARRAY_ELEMENTS)
+	        END_REPEAT;
+	        
+	        #statStep := 1000;
+	    300:
+	        REGION Check for next element or end bracket (})
+	            // If end-bracket (}) done
+	            IF (#tempChar[#statParseIndex] = '}') THEN
+	                #statStep := 1000;
+	            ELSE
+	                #statStep := 200;
+	            END_IF;
+	        END_REGION
+	        
+	    1000:
+	        REGION Done
+	            #done := true;
+	        END_REGION
+	END_CASE;
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK "FBJsonEncode"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      execute : Bool;
+      data : Array[1..#JSON_DATA_MAX] of Struct
+         sgName : String;
+         sgValue : String;
+      END_STRUCT;
+   END_VAR
+
+   VAR_OUTPUT 
+      done : Bool;
+      error : Bool;
+      status : Word;
+      dataElements : Int;
+      json { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..#MAX_ARRAY_ELEMENTS] of Char;
+   END_VAR
+
+   VAR 
+      statStep { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;
+      statParseIndex { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;
+   END_VAR
+
+   VAR_TEMP 
+      i : Int;
+      tmpCnt : UInt;
+      tempChar : Array[0..255] of Char;
+      j : Int;
+   END_VAR
+
+   VAR CONSTANT 
+      MAX_ARRAY_ELEMENTS : Int := 10000;
+      NO_ERROR : Word := 16#0000;
+      NO_CURRENT_JOBS : Word := 16#7000;
+      JSON_DATA_MAX : Int := 30;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	//Status Codes:
+	// 16#7000:  No current jobs
+	// 16#0000:  Job finished; Note: There is no "Busy"-Status because the block is
+	//           finished within a single cycle
+	//=============================================================================
+	#error := false;
+	
+	IF NOT #execute THEN
+	    #statStep := 0;
+	END_IF;
+	IF #error THEN
+	    RETURN;
+	END_IF;
+	
+	CASE #statStep OF
+	    0:
+	        REGION Initialize
+	            // Initialization
+	            #statParseIndex := 1;
+	            #dataElements := 0;
+	            
+	            // Set "No current job" status
+	            #done := false;
+	            #error := false;
+	            #status := #NO_CURRENT_JOBS;
+	            
+	            IF #execute THEN
+	                #statStep := 10;
+	            END_IF;
+	        END_REGION
+	        
+	    10:
+	        REGION Clear old json
+	            FOR #i := 1 TO #MAX_ARRAY_ELEMENTS DO
+	                #json[#i] := ' ';
+	            END_FOR;
+	            
+	            #statStep := 100;
+	        END_REGION
+	        
+	    100:
+	        REGION Add start-bracket ({)
+	            #json[#statParseIndex] := '{';
+	            #statParseIndex += 1;
+	        END_REGION
+	        
+	        REGION Write JSON data
+	            FOR #i := 1 TO #JSON_DATA_MAX DO
+	                // Check if name is present
+	                IF (#data[#i].sgName <> '') THEN
+	                    // Add "
+	                    #json[#statParseIndex] := '"';
+	                    #statParseIndex += 1;
+	                    
+	                    // Clear char
+	                    FOR #j := 0 TO 255 DO
+	                        #tempChar[#j] := BYTE_TO_CHAR(16#00);
+	                    END_FOR;
+	                    
+	                    // Convert string to char
+	                    Strg_TO_Chars(Strg:=#data[#i].sgName,
+	                                  pChars:=0,
+	                                  Cnt=>#tmpCnt,
+	                                  Chars:=#tempChar);
+	                    // Move name
+	                    FOR #j := 0 TO UINT_TO_INT(#tmpCnt - 1) DO
+	                        IF ((#tmpCnt - 1) > 255) THEN
+	                            EXIT;
+	                        ELSE
+	                            #json[#statParseIndex] := #tempChar[#j];
+	                            #statParseIndex += 1;
+	                        END_IF;
+	                    END_FOR;
+	                    
+	                    // Add "
+	                    #json[#statParseIndex] := '"';
+	                    #statParseIndex += 1;
+	                    
+	                    // Add :
+	                    #json[#statParseIndex] := ':';
+	                    #statParseIndex += 1;
+	                    
+	                    // Add "
+	                    #json[#statParseIndex] := '"';
+	                    #statParseIndex += 1;
+	                    
+	                    // Clear char
+	                    FOR #j := 0 TO 255 DO
+	                        #tempChar[#j] := BYTE_TO_CHAR(16#00);
+	                    END_FOR;
+	                    
+	                    // Convert string to char
+	                    Strg_TO_Chars(Strg := #data[#i].sgValue,
+	                                  pChars := 0,
+	                                  Cnt => #tmpCnt,
+	                                  Chars := #tempChar);
+	                    // Move name
+	                    FOR #j := 0 TO UINT_TO_INT(#tmpCnt - 1) DO
+	                        IF ((#tmpCnt - 1) > 255) THEN
+	                            EXIT;
+	                        ELSE
+	                            #json[#statParseIndex] := #tempChar[#j];
+	                            #statParseIndex += 1;
+	                        END_IF;
+	                    END_FOR;
+	                    
+	                    // Add "
+	                    #json[#statParseIndex] := '"';
+	                    #statParseIndex += 1;
+	                    
+	                    // Add ,
+	                    #json[#statParseIndex] := ',';
+	                    #statParseIndex += 1;
+	                ELSE
+	                    EXIT;
+	                END_IF;
+	            END_FOR;
+	        END_REGION
+	        
+	        REGION Add end-bracket (})
+	            #json[#statParseIndex-1] := '}';
+	        END_REGION
+	        
+	        #dataElements := #statParseIndex;
+	        
+	        #statStep := 1000;
+	        
+	    1000:
+	        REGION Done
+	            #done := true;
+	        END_REGION
+	END_CASE;
+END_FUNCTION_BLOCK
