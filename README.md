@@ -1,4 +1,7 @@
 # Hedeby.Net
+## Articles :page_with_curl:
+* [](Random key generator)
+* [https://github.com/LasseHedeby/Hedeby.Net/tree/master/Read%20Value%20in%20a%20string%20in%20SCL](Read value in a string in SCL)
 
 ## About :ok_hand:
 Hi
