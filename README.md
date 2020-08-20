@@ -1,13 +1,13 @@
 # Hedeby.Net
 ## Articles :page_with_curl:
-* [Simple SIMATIC Stopwatch](../blob/master/tree/master/Simple%20SIMATIC%20Stopwatch)
-* [Easy TCP/IP socket communication for SIMATIC](/tree/master/Easy%20TCPIP%20Socket%20for%20SIMATIC)
-* [SIMATIC JSON Parser](/tree/master/SIMATIC%20JSON%20Parser)
-* [Simple CRC32 Function For SIMATIC](/tree/master/Simple%20CRC32%20Function%20for%20SIMATIC)
-* [Modbus TCP/IP for SIMOTION](/tree/master/Modbus%20TCPIP%20for%20SIMOTION)
-* [Random Storage Algorithm for SIMATIC PLC](/tree/master/Random%20storage%20algorithm)
-* [Random key generator](/tree/master/Random%20key%20generator)
-* [Read value in a string in SCL](/tree/master/Read%20Value%20in%20a%20string%20in%20SCL)
+* [Simple SIMATIC Stopwatch](https://github.com/LasseHedeby/Hedeby.Net/tree/master/Simple%20SIMATIC%20Stopwatch)
+* [Easy TCP/IP socket communication for SIMATIC](https://github.com/LasseHedeby/Hedeby.Net/tree/master/Easy%20TCPIP%20Socket%20for%20SIMATIC)
+* [SIMATIC JSON Parser](https://github.com/LasseHedeby/Hedeby.Net/tree/master/SIMATIC%20JSON%20Parser)
+* [Simple CRC32 Function For SIMATIC](https://github.com/LasseHedeby/Hedeby.Net/tree/master/Simple%20CRC32%20Function%20for%20SIMATIC)
+* [Modbus TCP/IP for SIMOTION](https://github.com/LasseHedeby/Hedeby.Net/tree/master/Modbus%20TCPIP%20for%20SIMOTION)
+* [Random Storage Algorithm for SIMATIC PLC](https://github.com/LasseHedeby/Hedeby.Net/tree/master/Random%20storage%20algorithm)
+* [Random key generator](https://github.com/LasseHedeby/Hedeby.Net/tree/master/Random%20key%20generator)
+* [Read value in a string in SCL](https://github.com/LasseHedeby/Hedeby.Net/tree/master/Read%20Value%20in%20a%20string%20in%20SCL)
 
 ## About :ok_hand:
 Hi
