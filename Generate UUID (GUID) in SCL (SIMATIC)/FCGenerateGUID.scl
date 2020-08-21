@@ -1,0 +1,376 @@
+FUNCTION "FCGenerateGUID" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_OUTPUT 
+      guid : String;
+      shortGUID : String;
+   END_VAR
+
+   VAR_TEMP 
+      tempTimeLow : UDInt;
+      tempTimeMid : UInt;
+      tempTimeHiAndVersion : UInt;
+      tempClockSeqHiAndReserved : USInt;
+      tempClockSeqLow : USInt;
+      tempClockSeq : UInt;
+      tempNode : Array[0..5] of USInt;
+      tempTime {InstructionName := 'DTL'; LibVersion := '1.0'} : DTL;
+      tempTimeStatus : Int;
+      i : Int;
+      tempGUID : String;
+      tempConvert : String;
+      RetVal : Word;
+      tempChar : Array[0..255] of Char;
+      tempCount : UInt;
+      tempToogle : Bool;
+      tempBytes : Array[0..15] of Byte;
+      tempShortGUID : String;
+      tempIndex : Array[0..29] of Byte;
+      j : Int;
+   END_VAR
+
+
+BEGIN
+	(*
+	 UUIDv4 based on RFC4122
+	 
+	 
+	UUID                   = time-low "-" time-mid "-"
+	                         time-high-and-version "-"
+	                         clock-seq-and-reserved
+	                         clock-seq-low "-" node
+	time-low               = 4hexOctet
+	time-mid               = 2hexOctet
+	time-high-and-version  = 2hexOctet
+	clock-seq-and-reserved = hexOctet
+	clock-seq-low          = hexOctet
+	node                   = 6hexOctet
+	hexOctet               = hexDigit hexDigit
+	hexDigit =
+	    "0" / "1" / "2" / "3" / "4" / "5" / "6" / "7" / "8" / "9" /
+	    "a" / "b" / "c" / "d" / "e" / "f" /
+	    "A" / "B" / "C" / "D" / "E" / "F"
+	
+	The following is an example of the string representation of a UUID as
+	a URN:
+	
+	urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+	
+	Field                  Data Type     Octet  Note
+	                                    #
+	
+	time_low               unsigned 32   0-3    The low field of the
+	                       bit integer          timestamp
+	
+	time_mid               unsigned 16   4-5    The middle field of the
+	                       bit integer          timestamp
+	
+	time_hi_and_version    unsigned 16   6-7    The high field of the
+	                       bit integer          timestamp multiplexed
+	                                           with the version number
+	
+	clock_seq_hi_and_rese  unsigned 8    8      The high field of the
+	rved                   bit integer          clock sequence
+	                                           multiplexed with the
+	                                           variant
+	
+	clock_seq_low          unsigned 8    9      The low field of the
+	                       bit integer          clock sequence
+	
+	node                   unsigned 48   10-15  The spatially unique
+	                       bit integer          node identifier
+	*)
+	
+	REGION Generate UUIDv4 (Psudo-Random)
+	    // Time_low
+	    #tempTimeStatus := RD_SYS_T(#tempTime);
+	    #tempTimeLow := #tempTime.NANOSECOND;
+	    
+	    // Time_mid
+	    #tempTimeStatus := RD_SYS_T(#tempTime);
+	    #tempTimeMid := #tempTime.NANOSECOND.%W1;
+	    
+	    // Time_hi_and_version
+	    #tempTimeStatus := RD_SYS_T(#tempTime);
+	    #tempTimeHiAndVersion := #tempTime.NANOSECOND.%W0;
+	    #tempTimeHiAndVersion.%X12 := 2#0;
+	    #tempTimeHiAndVersion.%X13 := 2#1;
+	    #tempTimeHiAndVersion.%X14 := 2#0;
+	    #tempTimeHiAndVersion.%X15 := 2#0;
+	    
+	    // Clock_seq_hi_and_reserved
+	    #tempTimeStatus := RD_SYS_T(#tempTime);
+	    #tempClockSeqHiAndReserved := #tempTime.NANOSECOND.%B0;
+	    #tempClockSeqHiAndReserved.%X6 := 2#0;
+	    #tempClockSeqHiAndReserved.%X7 := 2#1;
+	    
+	    // Clock_seq_low
+	    #tempTimeStatus := RD_SYS_T(#tempTime);
+	    #tempClockSeqLow := #tempTime.NANOSECOND.%B0;
+	    
+	    // Clock_seq
+	    #tempClockSeq.%B1 := #tempClockSeqHiAndReserved;
+	    #tempClockSeq.%B0 := #tempClockSeqLow;
+	    
+	    // Nodes
+	    #tempTimeStatus := RD_SYS_T(#tempTime);
+	    #tempNode[0] := #tempTime.NANOSECOND.%B0;
+	    #tempNode[1] := #tempTime.NANOSECOND.%B1;
+	    #tempNode[2] := #tempTime.NANOSECOND.%B2;
+	    #tempNode[3] := #tempTime.NANOSECOND.%B3;
+	    #tempNode[4] := WORD_TO_USINT(#tempTime.NANOSECOND.%W0);
+	    #tempNode[5] := WORD_TO_USINT(#tempTime.NANOSECOND.%W1);
+	END_REGION
+	
+	
+	REGION Generate GUID
+	    #tempGUID := '';
+	    #RetVal := HTA(IN := #tempTimeLow, N := 4, OUT => #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := '-');
+	    #RetVal := HTA(IN := #tempTimeMid, N := 2, OUT => #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := '-');
+	    #RetVal := HTA(IN := #tempTimeHiAndVersion, N := 2, OUT => #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := '-');
+	    #RetVal := HTA(IN := #tempClockSeq, N := 2, OUT => #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := #tempConvert);
+	    #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := '-');
+	    FOR #i := 0 TO 5 DO
+	        #RetVal := HTA(IN := #tempNode[#i], N := 1, OUT => #tempConvert);
+	        #tempGUID := CONCAT(IN1 := #tempGUID, IN2 := #tempConvert);
+	    END_FOR;
+	    
+	    // Convert all charactors to lower case
+	    Strg_TO_Chars(Strg := #tempGUID,
+	                  pChars := 0,
+	                  Cnt => #tempCount,
+	                  Chars := #tempChar);
+	    FOR #i := 0 TO UINT_TO_INT(#tempCount) DO
+	        CASE BYTE_TO_INT(CHAR_TO_BYTE(#tempChar[#i])) OF
+	            16#41:  // A
+	                #tempChar[#i] := 'a';
+	            16#42:  // B
+	                #tempChar[#i] := 'b';
+	            16#43:  // C
+	                #tempChar[#i] := 'c';
+	            16#44:  // D
+	                #tempChar[#i] := 'd';
+	            16#45:  // E
+	                #tempChar[#i] := 'e';
+	            16#46:  // F
+	                #tempChar[#i] := 'f';
+	        END_CASE;
+	    END_FOR;
+	    Chars_TO_Strg(Chars := #tempChar,
+	                  pChars := 0,
+	                  Cnt := #tempCount,
+	                  Strg => #tempGUID);
+	END_REGION
+	
+	REGION Generate Short GUID (Base64 encoded)
+	    // Convert UUID to byte array
+	    #tempBytes[0] := #tempTimeLow.%B3;
+	    #tempBytes[1] := #tempTimeLow.%B2;
+	    #tempBytes[2] := #tempTimeLow.%B1;
+	    #tempBytes[3] := #tempTimeLow.%B0;
+	    #tempBytes[4] := #tempTimeMid.%B1;
+	    #tempBytes[5] := #tempTimeMid.%B0;
+	    #tempBytes[6] := #tempTimeHiAndVersion.%B1;
+	    #tempBytes[7] := #tempTimeHiAndVersion.%B0;
+	    #tempBytes[8] := #tempClockSeq.%B1;
+	    #tempBytes[9] := #tempClockSeq.%B0;
+	    #tempBytes[10] := #tempNode[0];
+	    #tempBytes[11] := #tempNode[1];
+	    #tempBytes[12] := #tempNode[2];
+	    #tempBytes[13] := #tempNode[3];
+	    #tempBytes[14] := #tempNode[4];
+	    #tempBytes[15] := #tempNode[5];
+	    
+	    // Encode the 16 bytes
+	    #tempShortGUID := '';
+	    // Encode index's
+	    #i := 0;
+	    #j := 0;
+	    REPEAT
+	        // 1. index
+	        #tempIndex[#i].%X7 := 2#0;
+	        #tempIndex[#i].%X6 := 2#0;
+	        #tempIndex[#i].%X5 := #tempBytes[#j].%X7;
+	        #tempIndex[#i].%X4 := #tempBytes[#j].%X6;
+	        #tempIndex[#i].%X3 := #tempBytes[#j].%X5;
+	        #tempIndex[#i].%X2 := #tempBytes[#j].%X4;
+	        #tempIndex[#i].%X1 := #tempBytes[#j].%X3;
+	        #tempIndex[#i].%X0 := #tempBytes[#j].%X2;
+	        // 2. index
+	        #tempIndex[#i + 1].%X7 := 2#0;
+	        #tempIndex[#i + 1].%X6 := 2#0;
+	        #tempIndex[#i + 1].%X5 := #tempBytes[#j].%X1;
+	        #tempIndex[#i + 1].%X4 := #tempBytes[#j].%X0;
+	        #tempIndex[#i + 1].%X3 := #tempBytes[#j + 1].%X7;
+	        #tempIndex[#i + 1].%X2 := #tempBytes[#j + 1].%X6;
+	        #tempIndex[#i + 1].%X1 := #tempBytes[#j + 1].%X5;
+	        #tempIndex[#i + 1].%X0 := #tempBytes[#j + 1].%X4;
+	        // 3. index
+	        #tempIndex[#i + 2].%X7 := 2#0;
+	        #tempIndex[#i + 2].%X6 := 2#0;
+	        #tempIndex[#i + 2].%X5 := #tempBytes[#j + 1].%X3;
+	        #tempIndex[#i + 2].%X4 := #tempBytes[#j + 1].%X2;
+	        #tempIndex[#i + 2].%X3 := #tempBytes[#j + 1].%X1;
+	        #tempIndex[#i + 2].%X2 := #tempBytes[#j + 1].%X0;
+	        #tempIndex[#i + 2].%X1 := #tempBytes[#j + 2].%X7;
+	        #tempIndex[#i + 2].%X0 := #tempBytes[#j + 2].%X6;
+	        // 4. index
+	        #tempIndex[#i + 3].%X7 := 2#0;
+	        #tempIndex[#i + 3].%X6 := 2#0;
+	        #tempIndex[#i + 3].%X5 := #tempBytes[#j + 2].%X5;
+	        #tempIndex[#i + 3].%X4 := #tempBytes[#j + 2].%X4;
+	        #tempIndex[#i + 3].%X3 := #tempBytes[#j + 2].%X3;
+	        #tempIndex[#i + 3].%X2 := #tempBytes[#j + 2].%X2;
+	        #tempIndex[#i + 3].%X1 := #tempBytes[#j + 2].%X1;
+	        #tempIndex[#i + 3].%X0 := #tempBytes[#j + 2].%X0;
+	        
+	        #i += 4;
+	        #j += 3;
+	    UNTIL (#j >= 12) OR (#i >= 18)
+	    END_REPEAT;
+	    
+	    FOR #i := 0 TO 21 DO
+	        CASE BYTE_TO_INT(#tempIndex[#i]) OF
+	            0:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'A');
+	            1:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'B');
+	            2:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'C');
+	            3:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'D');
+	            4:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'E');
+	            5:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'F');
+	            6:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'G');
+	            7:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'H');
+	            8:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'I');
+	            9:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'J');
+	            10:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'K');
+	            11:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'L');
+	            12:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'M');
+	            13:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'N');
+	            14:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'O');
+	            15:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'P');
+	            16:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'Q');
+	            17:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'R');
+	            18:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'S');
+	            19:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'T');
+	            20:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'U');
+	            21:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'V');
+	            22:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'W');
+	            23:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'X');
+	            24:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'Y');
+	            25:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'Z');
+	            26:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'a');
+	            27:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'b');
+	            28:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'c');
+	            29:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'd');
+	            30:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'e');
+	            31:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'f');
+	            32:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'g');
+	            33:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'h');
+	            34:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'i');
+	            35:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'j');
+	            36:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'k');
+	            37:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'l');
+	            38:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'm');
+	            39:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'n');
+	            40:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'o');
+	            41:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'p');
+	            42:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'q');
+	            43:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'r');
+	            44:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 's');
+	            45:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 't');
+	            46:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'u');
+	            47:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'v');
+	            48:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'w');
+	            49:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'x');
+	            50:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'y');
+	            51:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := 'z');
+	            52:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '0');
+	            53:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '1');
+	            54:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '2');
+	            55:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '3');
+	            56:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '4');
+	            57:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '5');
+	            58:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '6');
+	            59:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '7');
+	            60:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '8');
+	            61:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '9');
+	            62:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '+');
+	            63:
+	                #tempShortGUID := CONCAT(IN1 := #tempShortGUID, IN2 := '/');
+	        END_CASE;
+	    END_FOR;
+	END_REGION
+	
+	// Output
+	#shortGUID := #tempShortGUID;
+	#guid := #tempGUID;
+END_FUNCTION
