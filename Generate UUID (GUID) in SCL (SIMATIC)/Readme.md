@@ -100,7 +100,7 @@ This GUID is outputed on the tag `guid`with the format as described in RFC4122 `
 ## Short GUID
 **Inspiraton**: https://www.madskristensen.net/blog/A-shorter-and-URL-friendly-GUID
 
-By encoding the UUID with [Base64](https://en.wikipedia.org/wiki/Base64) encoding we can shorten the GUID from 36 to 22 ASCII charactors without loosing the uniqueness and content (it can be decoded again). This is usefull if size is cruisual, like if the content has to be sued in an RFID, DataMatrix or transmitted over low-bandwidth network.
+By encoding the UUID with [Base64](https://en.wikipedia.org/wiki/Base64) encoding we can shorten the GUID from 36 to 22 ASCII charactors without loosing the uniqueness and content (it can be decoded again). This is usefull if size is cruisual, like if the content has to be used in RFID, DataMatrix or transmitted over low-bandwidth network.
 
 The ShortGUID is outputtet on the tag `shortGUID` with the format `FEx1sZbSD0ugmgMAF_RGHw`
 
