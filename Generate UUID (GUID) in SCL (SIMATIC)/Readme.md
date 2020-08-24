@@ -1,7 +1,7 @@
 # Generate UUID (GUID) in SCL (SIMATIC)
 **Date:** 2020-08-21
 
-UUIDv4 based on RFC4122 can be generated in 5 different ways. The 4th is by random or psudo-random generation. This function both generates a GUID based on RFC4122 and also a ShortGUID, where the GUID is encode with Base64 encoding, as described here by [Mads Kristensen](https://www.madskristensen.net/blog/A-shorter-and-URL-friendly-GUID) for C#.
+UUIDv4 based on [RFC4122](https://tools.ietf.org/html/rfc4122) can be generated in 5 different ways. The 4th is by random or psudo-random generation. This function both generates a GUID based on RFC4122 and also a ShortGUID, where the GUID is encode with Base64 encoding, as described here by [Mads Kristensen](https://www.madskristensen.net/blog/A-shorter-and-URL-friendly-GUID) for C#.
 
 ## GUID
 ```
