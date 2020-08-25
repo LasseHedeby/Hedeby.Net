@@ -81,14 +81,16 @@ BEGIN
 	                       bit integer          node identifier
 	*)
 	
-	REGION Generate UUIDv4 (Psudo-Random)
+	REGION Generate UUIDv4 (Psudo Random)
 	    // Time_low
 	    #tempTimeStatus := RD_SYS_T(#tempTime);
 	    #tempTimeLow := #tempTime.NANOSECOND;
+	    //WAIT(101);
 	    
 	    // Time_mid
 	    #tempTimeStatus := RD_SYS_T(#tempTime);
 	    #tempTimeMid := #tempTime.NANOSECOND.%W1;
+	    //WAIT(111);
 	    
 	    // Time_hi_and_version
 	    #tempTimeStatus := RD_SYS_T(#tempTime);
@@ -97,12 +99,14 @@ BEGIN
 	    #tempTimeHiAndVersion.%X13 := 2#1;
 	    #tempTimeHiAndVersion.%X14 := 2#0;
 	    #tempTimeHiAndVersion.%X15 := 2#0;
+	    //WAIT(222);
 	    
 	    // Clock_seq_hi_and_reserved
 	    #tempTimeStatus := RD_SYS_T(#tempTime);
 	    #tempClockSeqHiAndReserved := #tempTime.NANOSECOND.%B0;
 	    #tempClockSeqHiAndReserved.%X6 := 2#0;
 	    #tempClockSeqHiAndReserved.%X7 := 2#1;
+	    //WAIT(65);
 	    
 	    // Clock_seq_low
 	    #tempTimeStatus := RD_SYS_T(#tempTime);
@@ -118,8 +122,9 @@ BEGIN
 	    #tempNode[1] := #tempTime.NANOSECOND.%B1;
 	    #tempNode[2] := #tempTime.NANOSECOND.%B2;
 	    #tempNode[3] := #tempTime.NANOSECOND.%B3;
-	    #tempNode[4] := WORD_TO_USINT(#tempTime.NANOSECOND.%W0);
-	    #tempNode[5] := WORD_TO_USINT(#tempTime.NANOSECOND.%W1);
+	    #tempTimeStatus := RD_SYS_T(#tempTime);
+	    #tempNode[4] := (#tempTime.NANOSECOND.%B0 + #tempTime.NANOSECOND.%B1);
+	    #tempNode[5] := (#tempTime.NANOSECOND.%B3 + #tempTime.NANOSECOND.%B2);
 	END_REGION
 	
 	
@@ -233,7 +238,7 @@ BEGIN
 	        
 	        #i += 4;
 	        #j += 3;
-	    UNTIL (#j >= 12) OR (#i >= 18)
+	    UNTIL (#j >= 13) OR (#i >= 18)
 	    END_REPEAT;
 	    
 	    FOR #i := 0 TO 21 DO
