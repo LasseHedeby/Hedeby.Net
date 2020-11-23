@@ -1,5 +1,5 @@
 # SIMATIC JSON Parser
-**Date:** 2019-04-15
+**Date:** 2019-04-15, updated: 2020-11-23
 
 JSON is a very powerful and simple way of arranging data and exchange it between systems.
 
