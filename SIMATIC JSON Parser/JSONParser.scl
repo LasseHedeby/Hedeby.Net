@@ -1,3 +1,117 @@
+FUNCTION "FCIsBoolean" : Bool
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      value : String;
+   END_VAR
+
+   VAR_TEMP 
+      tempCount : UInt;
+      tempChar : Array[1..256] of Char;
+      i : Int;
+   END_VAR
+
+
+BEGIN
+	// Change to lower case
+	Strg_TO_Chars(Strg := #value,
+	              pChars := 0,
+	              Cnt => #tempCount,
+	              Chars := #tempChar);
+	FOR #i := 1 TO UINT_TO_INT(#tempCount) DO
+	    CASE CHAR_TO_BYTE(#tempChar[#i]) OF
+	        16#41:
+	            #tempChar[#i] := 'a';
+	        16#42:
+	            #tempChar[#i] := 'b';
+	        16#43:
+	            #tempChar[#i] := 'c';
+	        16#44:
+	            #tempChar[#i] := 'd';
+	        16#45:
+	            #tempChar[#i] := 'e';
+	        16#46:
+	            #tempChar[#i] := 'f';
+	        16#47:
+	            #tempChar[#i] := 'g';
+	        16#48:
+	            #tempChar[#i] := 'h';
+	        16#49:
+	            #tempChar[#i] := 'i';
+	        16#4a:
+	            #tempChar[#i] := 'j';
+	        16#4b:
+	            #tempChar[#i] := 'k';
+	        16#4c:
+	            #tempChar[#i] := 'l';
+	        16#4d:
+	            #tempChar[#i] := 'm';
+	        16#4e:
+	            #tempChar[#i] := 'n';
+	        16#4f:
+	            #tempChar[#i] := 'o';
+	        16#50:
+	            #tempChar[#i] := 'p';
+	        16#51:
+	            #tempChar[#i] := 'q';
+	        16#52:
+	            #tempChar[#i] := 'r';
+	        16#53:
+	            #tempChar[#i] := 's';
+	        16#54:
+	            #tempChar[#i] := 't';
+	        16#55:
+	            #tempChar[#i] := 'u';
+	        16#56:
+	            #tempChar[#i] := 'v';
+	        16#57:
+	            #tempChar[#i] := 'w';
+	        16#58:
+	            #tempChar[#i] := 'x';
+	        16#59:
+	            #tempChar[#i] := 'y';
+	        16#5a:
+	            #tempChar[#i] := 'z';
+	    END_CASE;
+	END_FOR;
+	
+	#FCIsBoolean := (#value = 'true') OR (#value = 'false');
+END_FUNCTION
+
+FUNCTION "FCIsNumber" : Bool
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      value : String;
+   END_VAR
+
+   VAR_TEMP 
+      tempCount : UInt;
+      tempChar : Array[1..256] of Char;
+      i : Int;
+      tempNumber : Bool;
+   END_VAR
+
+
+BEGIN
+	// Change charactors is numeric or separator
+	Strg_TO_Chars(Strg := #value,
+	              pChars := 0,
+	              Cnt => #tempCount,
+	              Chars := #tempChar);
+	#tempNumber := true;
+	FOR #i := 1 TO UINT_TO_INT(#tempCount) DO
+	    CASE CHAR_TO_BYTE(#tempChar[#i]) OF
+	        16#0..16#20,16#2c,16#2e,16#30..16#39:
+	            #tempNumber := true;
+	        ELSE
+	            #tempNumber := false;
+	            EXIT;
+	    END_CASE;
+	END_FOR;
+	#FCIsNumber := #tempNumber;
+END_FUNCTION
+
 FUNCTION_BLOCK "FBJsonDecode"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
@@ -141,14 +255,15 @@ BEGIN
 	                #error := true;
 	                #status := INT_TO_WORD(#tempMoveBlkError);
 	                RETURN;
-	            ELSE
-	                #statStep := 100;
 	            END_IF;
 	        ELSIF (#statElementCount <= 1) THEN
 	            // If there are 0 elements in the array, set status to "Error: Parameter is an empty array"
 	            #error := true;
 	            #status := #EMPTY_ARRAY;
+	            RETURN;
 	        END_IF;
+	        
+	        #statStep := 100;
 	    END_REGION
 	END_IF;
 	IF (#statStep = 100) THEN
@@ -225,7 +340,7 @@ BEGIN
 	                END_IF;
 	            END_REGION
 	            
-	            REGION Check for string or number value
+	            REGION Check for string or number/bool value
 	                IF (#tempChar[#statParseIndex] = '"') THEN
 	                    #tempValueString := true;
 	                    #statParseIndex += 1;
@@ -313,7 +428,7 @@ VERSION : 0.1
    VAR_INPUT 
       execute : Bool;
       data : Array[1..#JSON_DATA_MAX] of Struct
-         sgName : String;
+         sgKey : String;
          sgValue : String;
       END_STRUCT;
    END_VAR
@@ -336,6 +451,7 @@ VERSION : 0.1
       tmpCnt : UInt;
       tempChar : Array[0..255] of Char;
       j : Int;
+      tempNoQuote : Bool;
    END_VAR
 
    VAR CONSTANT 
@@ -396,7 +512,7 @@ BEGIN
 	    REGION Write JSON data
 	        FOR #i := 1 TO #JSON_DATA_MAX DO
 	            // Check if name is present
-	            IF (#data[#i].sgName <> '') THEN
+	            IF (#data[#i].sgKey <> '') THEN
 	                // Add "
 	                #json[#statParseIndex] := '"';
 	                #statParseIndex += 1;
@@ -407,7 +523,7 @@ BEGIN
 	                END_FOR;
 	                
 	                // Convert string to char
-	                Strg_TO_Chars(Strg := #data[#i].sgName,
+	                Strg_TO_Chars(Strg := #data[#i].sgKey,
 	                              pChars := 0,
 	                              Cnt => #tmpCnt,
 	                              Chars := #tempChar);
@@ -429,9 +545,14 @@ BEGIN
 	                #json[#statParseIndex] := ':';
 	                #statParseIndex += 1;
 	                
-	                // Add "
-	                #json[#statParseIndex] := '"';
-	                #statParseIndex += 1;
+	                // Check if number or boolean
+	                #tempNoQuote := "FCIsBoolean"(#data[#i].sgValue) OR "FCIsNumber"(#data[#i].sgValue);
+	                
+	                // Add " (if not number or boolean)
+	                IF NOT #tempNoQuote THEN
+	                    #json[#statParseIndex] := '"';
+	                    #statParseIndex += 1;
+	                END_IF;
 	                
 	                // Clear char
 	                FOR #j := 0 TO 255 DO
@@ -453,9 +574,11 @@ BEGIN
 	                    END_IF;
 	                END_FOR;
 	                
-	                // Add "
-	                #json[#statParseIndex] := '"';
-	                #statParseIndex += 1;
+	                // Add " (if not number or boolean)
+	                IF NOT #tempNoQuote THEN
+	                    #json[#statParseIndex] := '"';
+	                    #statParseIndex += 1;
+	                END_IF;
 	                
 	                // Add ,
 	                #json[#statParseIndex] := ',';
